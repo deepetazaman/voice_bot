@@ -1,0 +1,187 @@
+<!-- static/upload.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voice PHQ-9 Bot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f8f9fa;
+      padding: 2rem;
+    }
+    .container {
+      max-width: 600px;
+      margin: auto;
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    }
+    .chat-box {
+      border: 1px solid #ddd;
+      padding: 1rem;
+      height: 300px;
+      overflow-y: auto;
+      background: #fff;
+      margin-bottom: 1rem;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+    }
+    .msg.user { background: #dcf8c6; align-self: flex-end; }
+    .msg.bot  { background: #e7e7e7; align-self: flex-start; }
+    .msg {
+      padding: 0.5rem 1rem;
+      margin: 0.5rem 0;
+      border-radius: 15px;
+      max-width: 80%;
+      white-space: pre-line;
+    }
+    .controls {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🧠 Voice PHQ-9 Bot</h2>
+    <label for="voice-select">🎤 Choose Voice:</label>
+<select id="voice-select">
+  <!-- These are voice labels; actual names may vary per browser -->
+  <option value="default">Default</option>
+  <option value="Google US English">Google US English (Female)</option>
+  <option value="Google UK English Male">Google UK English (Male)</option>
+  <option value="Google Deutsch">German</option>
+  <option value="Google हिंदी">Hindi</option>
+  <option value="Google 日本語">Japanese</option>
+</select>
+
+    <div class="chat-box" id="chat-box"></div>
+
+    <div class="controls">
+      <button id="start-btn">🎙️ Start</button>
+      <button id="stop-btn" disabled>⏹️ Stop</button>
+      <button id="restart-btn">🔄 Restart</button>
+    </div>
+
+    <div id="loading" style="text-align:center; display:none;">
+      <p>🌀 Processing voice...</p>
+    </div>
+  </div>
+
+  <script>
+    const chatBox = document.getElementById('chat-box');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const loading = document.getElementById('loading');
+
+    let recorder;
+    let audioChunks = [];
+
+    function addMessage(text, sender) {
+      const msg = document.createElement('div');
+      msg.className = 'msg ' + sender;
+      msg.textContent = text;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function speak(text) {
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'en-US';
+  utter.rate = 0.95;
+
+  // Get user-selected voice
+  const selectedVoiceName = document.getElementById('voice-select').value;
+  const voices = window.speechSynthesis.getVoices();
+
+  const selectedVoice = voices.find(voice => voice.name === selectedVoiceName);
+  if (selectedVoice) {
+    utter.voice = selectedVoice;
+  }
+
+  speechSynthesis.cancel();  // Stop any ongoing speech
+  speechSynthesis.speak(utter);
+}
+
+
+    async function sendChatMessage(message) {
+  const res = await fetch('/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message })
+  });
+  const data = await res.json();
+  if (data.reply) {
+    addMessage(data.reply, 'bot');
+    speak(data.reply);
+  }
+
+
+}
+
+
+// Preload voices
+window.speechSynthesis.onvoiceschanged = () => {
+  window.speechSynthesis.getVoices();
+};
+
+
+    window.onload = () => {
+      addMessage("👋 Hello! You can start speaking to begin.", 'bot');
+      sendChatMessage("start");
+    };
+
+    startBtn.onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      recorder.ondataavailable = e => audioChunks.push(e.data);
+      recorder.onstop = async () => {
+        loading.style.display = 'block';
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const file = new File([blob], 'voice.webm', { type: 'audio/webm' });
+        await sendAudio(file);
+        loading.style.display = 'none';
+      };
+
+      recorder.start();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    };
+
+    stopBtn.onclick = () => {
+      recorder.stop();
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+    };
+
+    restartBtn.onclick = async () => {
+      chatBox.innerHTML = '';
+      await sendChatMessage("start");
+    };
+
+    async function sendAudio(file) {
+      const fd = new FormData();
+      fd.append('file', file);
+
+      try {
+        const res = await fetch('/transcribe', { method: 'POST', body: fd });
+        const { transcript } = await res.json();
+        addMessage(transcript, 'user');
+        await sendChatMessage(transcript);
+      } catch (e) {
+        addMessage("❌ Error processing voice. Try again.", 'bot');
+        console.error(e);
+      }
+    }
+
+    
+  </script>
+</body>
+</html> 
